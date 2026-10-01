@@ -242,6 +242,7 @@ ARG MQT_CORE_REPOSITORY=https://github.com/munich-quantum-toolkit/core.git
 ARG MQT_CORE_REF=151a69f9f99d0d1fb3bd735833d3f338ebb4d8a6
 ARG MQT_CC_VENV=/opt/openqse/mqt-cc-venv
 ARG MQT_CORE_SOURCE=/tmp/mqt-core-source
+ARG IQM_QDMI_VENV=/opt/openqse/iqm-qdmi-venv
 
 ENV QFW_BASE=/workspace/qfw-container-base \
     QFW_BUILD_JOBS=${QFW_BUILD_JOBS}
@@ -522,6 +523,15 @@ RUN set -ex \
         "${MQT_CORE_SOURCE}" 'qiskit==2.5.2' \
     && rm -rf "${MQT_CORE_SOURCE}"
 
+# Separate venv: iqm-qdmi[qiskit]>=1.4 pins mqt-core>=3.9.1,<3.10.dev0, which
+# conflicts with the MLIR-enabled mqt-core built from source above for
+# mqt-cc-venv. Letting it resolve its own mqt-core from PyPI here (rather than
+# pointing at MQT_CORE_SOURCE) keeps the two venvs independent.
+RUN set -ex \
+    && uv venv --python python3 "${IQM_QDMI_VENV}" \
+    && uv pip install --python "${IQM_QDMI_VENV}" --upgrade pip \
+    && uv pip install --python "${IQM_QDMI_VENV}" 'iqm-qdmi[qiskit]>=1.4'
+
 COPY shared-dir/mqt-cc-smoke-test.sbatch /tmp/mqt-cc-smoke-test.sbatch
 RUN set -ex \
     && MQT_CC_VENV="${MQT_CC_VENV}" bash /tmp/mqt-cc-smoke-test.sbatch \
@@ -538,7 +548,8 @@ ENV QFW_IMAGE_PREFIX=${QFW_IMAGE_PREFIX} \
     QRMI_VERSION=${QRMI_VERSION} \
     MODULEPATH=/etc/modulefiles:/usr/share/Modules/modulefiles:/usr/share/modulefiles \
     LD_LIBRARY_PATH=${OMPI_PREFIX}/lib:${OMPI_PREFIX}/lib64:${QRMI_PREFIX}/lib:${LD_LIBRARY_PATH} \
-    MQT_CC_VENV=${MQT_CC_VENV}
+    MQT_CC_VENV=${MQT_CC_VENV} \
+    IQM_QDMI_VENV=${IQM_QDMI_VENV}
 
 COPY modulefiles /etc/modulefiles
 RUN set -ex \
