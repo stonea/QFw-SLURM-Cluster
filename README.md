@@ -190,7 +190,7 @@ image:
 
 </details>
 
-To validate the QRMI/QDMI shim (local routing/normalization and device introspection on IQM hardware) or run the `mqt-cc` smoke test, see [TESTING.md](TESTING.md).
+To validate the QRMI/QDMI shim (local routing/normalization and device introspection on IQM hardware), run the `mqt-cc` smoke test, or run a circuit on the offline IBM Quantum System API simulator (`./do_ibmsim.sh up`, `docker-compose.ibmsim.yml`), see [TESTING.md](TESTING.md).
 
 ## Telemetry Dashboard (Optional)
 

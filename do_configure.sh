@@ -17,6 +17,7 @@ DEFAULT_MQT_CORE_REF="ddee68053bb523ccfe71e01703120df9ed96796b"
 ENV_FILE="${SCRIPT_DIR}/qfw-install.env"
 COMPOSE_ENV_FILE="${SCRIPT_DIR}/.env"
 TELEMETRY=false
+IBMSIM=false
 
 usage() {
     cat <<EOF
@@ -52,6 +53,8 @@ Options:
   -h, --help           Show this help text
   --telemetry      Start the telemetry stack with the cluster (docker-compose.telemetry.yml)
                    and give every QFw container the QFW_TELEMETRY variables
+  --ibmsim         Start the IBM Quantum System API simulator with the cluster
+                   (docker-compose.ibmsim.yml); ./do_ibmsim.sh up adds it later instead
 
 This command prepares the mounted host workspace and writes the defaults used
 by the helper scripts and docker compose into:
@@ -136,6 +139,10 @@ while [ "$#" -gt 0 ]; do
             TELEMETRY=true
             shift
             ;;
+        --ibmsim)
+            IBMSIM=true
+            shift
+            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -202,22 +209,29 @@ print_settings() {
     echo "  QFW_CONTAINER_BASE=${BASE_DIR}"
     echo "  MQT_CORE_REPOSITORY=${MQT_CORE_REPOSITORY}"
     echo "  MQT_CORE_REF=${MQT_CORE_REF}"
-    if ${TELEMETRY}; then
-        echo "  COMPOSE_FILE=$(telemetry_compose_files)"
+    if ${TELEMETRY} || ${IBMSIM}; then
+        echo "  COMPOSE_FILE=$(overlay_compose_files)"
     fi
 }
 
-# With --telemetry, compose reads COMPOSE_FILE from the env file, so every
-# do_*.sh and plain `docker compose` call includes the telemetry overlay: the
-# stack starts with the cluster and the cluster containers are created with
-# the QFw telemetry variables. docker-compose.override.yml is only picked up
-# automatically when no file list is given, so it is named here when present.
-telemetry_compose_files() {
+# With --telemetry or --ibmsim, compose reads COMPOSE_FILE from the env file,
+# so every do_*.sh and plain `docker compose` call includes the overlay: the
+# stack starts with the cluster and, for telemetry, the cluster containers are
+# created with the QFw telemetry variables. docker-compose.override.yml is only
+# picked up automatically when no file list is given, so it is named here when
+# present.
+overlay_compose_files() {
     local files="docker-compose.yml"
     if [ -f "${SCRIPT_DIR}/docker-compose.override.yml" ]; then
         files="${files}:docker-compose.override.yml"
     fi
-    echo "${files}:docker-compose.telemetry.yml"
+    if ${TELEMETRY}; then
+        files="${files}:docker-compose.telemetry.yml"
+    fi
+    if ${IBMSIM}; then
+        files="${files}:docker-compose.ibmsim.yml"
+    fi
+    echo "${files}"
 }
 
 validate_image_settings
@@ -248,10 +262,21 @@ MQT_CORE_REPOSITORY=${MQT_CORE_REPOSITORY}
 MQT_CORE_REF=${MQT_CORE_REF}
 EOF
 
+if ${TELEMETRY} || ${IBMSIM}; then
+    cat >> "${ENV_FILE}" <<EOF
+COMPOSE_FILE=$(overlay_compose_files)
+EOF
+fi
+
 if ${TELEMETRY}; then
     cat >> "${ENV_FILE}" <<EOF
-COMPOSE_FILE=$(telemetry_compose_files)
 QFW_GRAFANA_PORT=3000
+EOF
+fi
+
+if ${IBMSIM}; then
+    cat >> "${ENV_FILE}" <<EOF
+IBMSIM_PORT=8290
 EOF
 fi
 

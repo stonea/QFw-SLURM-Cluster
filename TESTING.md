@@ -317,6 +317,72 @@ sbatch --wait mqt-cc-smoke-test.sbatch
 The job uses the `normal` partition and needs no QPU allocation. Success ends
 with `MQT-CC QIR SMOKE TEST: PASS`.
 
+## IBM Quantum System API simulator (no credentials)
+
+`docker-compose.ibmsim.yml` adds the simulator from
+[qrmi-community/simulated_quantum_resource](https://github.com/qrmi-community/simulated_quantum_resource):
+IBM's Quantum System REST API with Qiskit Aer and the `qiskit-ibm-runtime`
+fake backends behind it, plus the S3-compatible store (RustFS) that QRMI stages
+job input and results through. QRMI's `IBMQuantumSystem` resource is the
+client, unchanged from what reaches a real IBM system; only the addresses
+differ. This is the only way to exercise the shim's IBM execution path
+(`QrmiDriver._run_ibm_circuit`: target fetch, ISA transpile, SamplerV2 payload,
+S3 round trip, `qhw-ibm` normalization) without an IBM account.
+
+Start it beside the running cluster (the first `up` builds the simulator image
+from the ref pinned in `ibmsim/Dockerfile`):
+
+```bash
+./do_ibmsim.sh up
+```
+
+or configure it in so `do_startup.sh` starts it with the cluster:
+
+```bash
+./do_configure.sh --ibmsim ...
+```
+
+The three containers (`ibmsim`, `ibmsim-s3`, `ibmsim-s3-init`) join the cluster
+network and are not Slurm nodes. No cluster container needs recreating: the API
+key, service CRN and S3 key pair are placeholders shared by the overlay and the
+test, and the test defaults to the in-network addresses.
+
+`shared-dir/ibmsim-test.sbatch` runs a 3-qubit GHZ circuit through the shim as a
+Python module, the IBM counterpart of `shim-test.sbatch`. Unlike that script it
+needs no `mqt-cc` step, because the IBM driver transpiles to the backend's ISA
+itself. Submit from inside `slurmctld`:
+
+```bash
+docker exec -w /workspace/qfw-container-base slurmctld \
+  bash /mnt/sbatch_poll_wait.sh /mnt/ibmsim-test.sbatch
+```
+
+By default it tests the developer override under `shared-dir/`; add
+`-e QFW_PREFIX=/opt/openqse/qfw -e QFW_VENV=/opt/openqse/qfw-venv` to test the
+image installation. `QFW_QPU_DEVICE_ALIAS` selects the simulated backend
+(`fake_lagos` by default; `fake_cairo`, `fake_brisbane`, `fake_torino`). Pass
+such settings through the environment, as `docker exec -e` does; on this
+cluster `sbatch --export=ALL,VAR=...` makes slurmd fetch the login environment
+with `su`, which fails and takes the node down.
+
+Expected (abridged; the noise model is the fake backend's, so FakeLagos leaves
+about 70% of the shots in the GHZ states and FakeBrisbane about 95%):
+
+```text
+device: ibm-qsa-sim (ibm:fake_lagos), 7 qubits via qrmi
+routing run_circuit -> qrmi
+counts: {'000': 370, '001': 20, '010': 57, '011': 78, '100': 70, '101': 57, '110': 24, '111': 348}
+GHZ fidelity proxy: 718/1024 shots in |000> + |111>
+IBMSIM GHZ TEST: PASS
+```
+
+The check is that `000` and `111` are the two most frequent outcomes and hold
+a majority between them. If the stack is down the job fails at once with
+`No IBM Quantum System API simulator at http://ibmsim:8290`. The simulator's
+Swagger UI is at `http://localhost:8290/docs` and `./do_ibmsim.sh logs` follows
+its log, where every job's presigned S3 URLs and Aer output appear.
+`./do_ibmsim.sh purge` also removes the S3 volume.
+
 ## What to capture
 
 The full `shim-smoke.out`, in particular the qubit and edge counts from each
@@ -325,3 +391,6 @@ leg, whether the QRMI leg ran or reported unavailable, and whether the
 
 For the `mqt-cc` smoke test, capture `mqt-cc-smoke-test.out` or the Slurm job's
 `mqt-cc-smoke-test.<job-id>.out`.
+
+For the IBM simulator test, capture the job's `slurm-<job-id>.out`: the backend
+alias and qubit count, the counts line and the `GHZ fidelity proxy` line.

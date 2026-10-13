@@ -1,0 +1,113 @@
+# Compose overlay: the IBM Quantum System API simulator, an offline stand-in
+# for an IBM QPU (qrmi-community/simulated_quantum_resource, Qiskit Aer
+# behind IBM's Quantum System REST API).
+#
+#   ./do_ibmsim.sh up         start it beside the running cluster
+#   ./do_ibmsim.sh down       remove it, keeping the S3 volume
+#
+# Three containers on the cluster network, none of them a Slurm node:
+#
+#   ibmsim          the simulator (ibmsim/Dockerfile), serving the Quantum
+#                   System API and its IAM token endpoint on :8290
+#   ibmsim-s3       RustFS, the S3-compatible store QRMI stages job input,
+#                   results and logs through (presigned URLs both ways)
+#   ibmsim-s3-init  one-shot: creates the bucket, then exits
+#
+# QRMI's IBMQuantumSystem resource is the client, unchanged: point its
+# QRMI_IBM_QS_* settings at ibmsim:8290 and ibmsim-s3:9000 and the same code
+# path that reaches a real IBM system reaches this. shared-dir/ibmsim-test.sbatch
+# does that through the QFw shim, with every value below as its default, so
+# nothing has to be exported into a cluster container and the cluster needs no
+# recreating. The overlay can be in COMPOSE_FILE (./do_configure.sh --ibmsim),
+# so the stack starts with the cluster, or started afterwards with do_ibmsim.sh.
+#
+# The API key, service CRN and S3 key pair are shared secrets between the
+# simulator and its clients, and nothing more: the simulator accepts whatever
+# it is started with, and it is reachable only on the cluster network. They are
+# placeholders, not credentials, and ibmsim-test.sbatch repeats them. Override
+# in qfw-install.env with IBMSIM_API_KEY, IBMSIM_SERVICE_CRN,
+# IBMSIM_S3_ACCESS_KEY, IBMSIM_S3_SECRET_KEY, and pass the same to the test.
+#
+# Upstream's compose also runs a socat proxy in the simulator's network
+# namespace, so that a client on the docker host can hand it presigned URLs
+# naming localhost:9000. Not needed here: client and simulator both resolve
+# ibmsim-s3 on the cluster network, so the URL a job signs is the URL the
+# simulator fetches, and SigV4's host binding holds.
+#
+# Ports on the host: the simulator's Swagger UI on 127.0.0.1:${IBMSIM_PORT:-8290}/docs
+# and the RustFS console on 127.0.0.1:${IBMSIM_S3_CONSOLE_PORT:-9001}, both for
+# inspection only. Images are pinned; the simulator ref is pinned in its
+# Dockerfile and can be moved with IBMSIM_REF.
+
+services:
+  ibmsim:
+    build:
+      context: ./ibmsim
+      args:
+        IBMSIM_REPOSITORY: ${IBMSIM_REPOSITORY:-https://github.com/qrmi-community/simulated_quantum_resource.git}
+        IBMSIM_REF: ${IBMSIM_REF:-0d547e7d329b8bd3315392e9117f116dc1661ddd}
+    image: ${IBMSIM_IMAGE:-qfw-ibmsim:local}
+    container_name: ibmsim
+    hostname: ibmsim
+    environment:
+      QSASIM_BIND_PORT: "8290"
+      QSASIM_IAM_APIKEY: ${IBMSIM_API_KEY:-qfw-ibmsim-apikey}
+      QSASIM_SERVICE_CRN: ${IBMSIM_SERVICE_CRN:-crn:v1:local:qfw-ibmsim}
+      PYTHONUNBUFFERED: "1"
+    expose:
+      - "8290"
+    ports:
+      - "127.0.0.1:${IBMSIM_PORT:-8290}:8290"
+    depends_on:
+      ibmsim-s3-init:
+        condition: service_completed_successfully
+    networks:
+      - slurm-network
+
+  ibmsim-s3:
+    image: rustfs/rustfs:1.0.1
+    container_name: ibmsim-s3
+    hostname: ibmsim-s3
+    environment:
+      RUSTFS_ACCESS_KEY: ${IBMSIM_S3_ACCESS_KEY:-qfw-ibmsim-access}
+      RUSTFS_SECRET_KEY: ${IBMSIM_S3_SECRET_KEY:-qfw-ibmsim-secret}
+      RUSTFS_REGION: ${IBMSIM_S3_REGION:-us-east-1}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+    volumes:
+      - ibmsim_s3_data:/data
+    expose:
+      - "9000"
+    ports:
+      - "127.0.0.1:${IBMSIM_S3_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - slurm-network
+
+  ibmsim-s3-init:
+    image: rustfs/rc:v0.1.36
+    container_name: ibmsim-s3-init
+    depends_on:
+      ibmsim-s3:
+        condition: service_healthy
+    # Public read is what upstream sets. Every transfer here goes through a
+    # presigned URL, so it is not relied on, but it keeps the bucket browsable
+    # from the console while debugging.
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/rc alias set s3 http://ibmsim-s3:9000 ${IBMSIM_S3_ACCESS_KEY:-qfw-ibmsim-access} ${IBMSIM_S3_SECRET_KEY:-qfw-ibmsim-secret} --region ${IBMSIM_S3_REGION:-us-east-1} --bucket-lookup path &&
+      /usr/bin/rc bucket create s3/${IBMSIM_S3_BUCKET:-qfw-ibmsim} --ignore-existing &&
+      /usr/bin/rc anonymous set public s3/${IBMSIM_S3_BUCKET:-qfw-ibmsim}
+      "
+    networks:
+      - slurm-network
+
+volumes:
+  ibmsim_s3_data:
