@@ -239,10 +239,9 @@ ARG NWQSIM_PREFIX=/opt/openqse/nwqsim
 ARG TNQVM_PREFIX=/opt/openqse/tnqvm
 ARG SIMULATOR_WORK_ROOT=/tmp/qfw-simulator-build
 ARG MQT_CORE_REPOSITORY=https://github.com/munich-quantum-toolkit/core.git
-ARG MQT_CORE_REF=151a69f9f99d0d1fb3bd735833d3f338ebb4d8a6
+ARG MQT_CORE_REF=ddee68053bb523ccfe71e01703120df9ed96796b
 ARG MQT_CC_VENV=/opt/openqse/mqt-cc-venv
 ARG MQT_CORE_SOURCE=/tmp/mqt-core-source
-ARG IQM_QDMI_VENV=/opt/openqse/iqm-qdmi-venv
 
 ENV QFW_BASE=/workspace/qfw-container-base \
     QFW_BUILD_JOBS=${QFW_BUILD_JOBS}
@@ -510,6 +509,11 @@ RUN set -ex \
     && rm /tmp/setup-mlir.sh
 
 ARG MQT_CORE_SOURCE_REVISION
+# iqm-qdmi[qiskit]'s own mqt-core~=3.9.1 pin is for its separate wheel's
+# build-time pairing; its QDMI device library is a dlopen'd C ABI, unaffected
+# by the MLIR-enabled mqt-core 4.x installed below, so --no-deps skips that
+# pin and qiskit-algorithms (its only other qiskit-extra dependency not
+# already satisfied) is installed directly.
 RUN set -ex \
     && git clone "${MQT_CORE_REPOSITORY}" "${MQT_CORE_SOURCE}" \
     && git -C "${MQT_CORE_SOURCE}" fetch origin "${MQT_CORE_REF}" \
@@ -521,16 +525,10 @@ RUN set -ex \
     && CMAKE_BUILD_PARALLEL_LEVEL="${QFW_BUILD_JOBS}" \
         uv pip install --python "${MQT_CC_VENV}" \
         "${MQT_CORE_SOURCE}" 'qiskit==2.5.2' \
-    && rm -rf "${MQT_CORE_SOURCE}"
-
-# Separate venv: iqm-qdmi[qiskit]>=1.4 pins mqt-core>=3.9.1,<3.10.dev0, which
-# conflicts with the MLIR-enabled mqt-core built from source above for
-# mqt-cc-venv. Letting it resolve its own mqt-core from PyPI here (rather than
-# pointing at MQT_CORE_SOURCE) keeps the two venvs independent.
-RUN set -ex \
-    && uv venv --python python3 "${IQM_QDMI_VENV}" \
-    && uv pip install --python "${IQM_QDMI_VENV}" --upgrade pip \
-    && uv pip install --python "${IQM_QDMI_VENV}" 'iqm-qdmi[qiskit]>=1.4'
+    && rm -rf "${MQT_CORE_SOURCE}" \
+    && uv pip install --python "${MQT_CC_VENV}" --no-deps \
+        'iqm-qdmi[qiskit]>=1.4' \
+    && uv pip install --python "${MQT_CC_VENV}" 'qiskit-algorithms>=0.4.0'
 
 COPY shared-dir/mqt-cc-smoke-test.sbatch /tmp/mqt-cc-smoke-test.sbatch
 RUN set -ex \
@@ -548,8 +546,7 @@ ENV QFW_IMAGE_PREFIX=${QFW_IMAGE_PREFIX} \
     QRMI_VERSION=${QRMI_VERSION} \
     MODULEPATH=/etc/modulefiles:/usr/share/Modules/modulefiles:/usr/share/modulefiles \
     LD_LIBRARY_PATH=${OMPI_PREFIX}/lib:${OMPI_PREFIX}/lib64:${QRMI_PREFIX}/lib:${LD_LIBRARY_PATH} \
-    MQT_CC_VENV=${MQT_CC_VENV} \
-    IQM_QDMI_VENV=${IQM_QDMI_VENV}
+    MQT_CC_VENV=${MQT_CC_VENV}
 
 COPY modulefiles /etc/modulefiles
 RUN set -ex \

@@ -80,7 +80,7 @@ if ${DRY_RUN}; then
         QFW_SLURM_REPOSITORY="${QFW_SLURM_REPOSITORY:-https://github.com/openQSE/qfw-slurm.git}"
         QFW_SLURM_REF="${QFW_SLURM_REF:-main}"
         MQT_CORE_REPOSITORY="${MQT_CORE_REPOSITORY:-https://github.com/munich-quantum-toolkit/core.git}"
-        MQT_CORE_REF="${MQT_CORE_REF:-151a69f9f99d0d1fb3bd735833d3f338ebb4d8a6}"
+        MQT_CORE_REF="${MQT_CORE_REF:-ddee68053bb523ccfe71e01703120df9ed96796b}"
         echo "Would run:"
         if ${NO_CACHE}; then
             echo "  docker build \\"
@@ -117,7 +117,7 @@ QFW_REF="${QFW_REF:-main}"
 QFW_SLURM_REPOSITORY="${QFW_SLURM_REPOSITORY:-https://github.com/openQSE/qfw-slurm.git}"
 QFW_SLURM_REF="${QFW_SLURM_REF:-main}"
 MQT_CORE_REPOSITORY="${MQT_CORE_REPOSITORY:-https://github.com/munich-quantum-toolkit/core.git}"
-MQT_CORE_REF="${MQT_CORE_REF:-151a69f9f99d0d1fb3bd735833d3f338ebb4d8a6}"
+MQT_CORE_REF="${MQT_CORE_REF:-ddee68053bb523ccfe71e01703120df9ed96796b}"
 
 resolve_remote_ref() {
     local repository="$1"

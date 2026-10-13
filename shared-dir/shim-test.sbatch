@@ -27,6 +27,9 @@
 #   SHIM_TEST_TIMEOUT      run_circuit poll timeout, seconds (default: 600 --
 #                         the mock backend can queue well past the 300s the
 #                         drivers default to; keep this below --time above)
+#   SHIM_TEST_MQT_MODEL    mqt-cc device model to compile against
+#                         (default: "mqt.sc.iqm.garnet")
+#   MQT_CC_VENV            mqt-cc venv path (default: /opt/openqse/mqt-cc-venv)
 #
 # No SLURM QPU reservation is needed -- this cluster's compute nodes declare
 # no qpu GRES, and the shim talks to QRMI/QDMI directly as a Python module.

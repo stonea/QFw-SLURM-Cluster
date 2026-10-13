@@ -33,12 +33,12 @@
 set -euo pipefail
 
 SCRIPT_DIR=/mnt
-IQM_QDMI_VENV="${IQM_QDMI_VENV:-/opt/openqse/iqm-qdmi-venv}"
+MQT_CC_VENV="${MQT_CC_VENV:-/opt/openqse/mqt-cc-venv}"
 
 : "${QFW_API_KEY:?set QFW_API_KEY to your IQM Resonance API token}"
 
 echo "[$(date)] mqt-iqm on $(hostname)"
 
-"${IQM_QDMI_VENV}/bin/python" "${SCRIPT_DIR}/mqt-iqm.py"
+"${MQT_CC_VENV}/bin/python" "${SCRIPT_DIR}/mqt-iqm.py"
 
 echo "[$(date)] mqt-iqm done on $(hostname)"
