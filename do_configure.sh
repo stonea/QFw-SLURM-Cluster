@@ -277,6 +277,7 @@ fi
 if ${IBMSIM}; then
     cat >> "${ENV_FILE}" <<EOF
 IBMSIM_PORT=8290
+IBMSIM_RUNTIME_PORT=8291
 EOF
 fi
 

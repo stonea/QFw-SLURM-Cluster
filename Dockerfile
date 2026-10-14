@@ -418,7 +418,14 @@ RUN set -ex \
 # drives: IQM's (iqm-qdmi) and Amazon Braket's (amazon-braket-qdmi, MQSC's
 # library, built on QDMI 1.3.3 like iqm-qdmi 1.4; 1.2.0 is the last release
 # on that QDMI, so it is pinned, and its extras need mqt-core 4, so none are
-# installed). setup/requirements.txt supplies Qiskit.
+# installed). iqm-qdmi is pinned to 1.4.0 because 1.5.0's Qiskit plugin
+# imports mqt.core.qdmi.builtin_driver, which needs mqt-core ~=4.1.1, so
+# iqm.qdmi.qiskit fails to import beside mqt-core 3.9.2.
+# IBM's (ibm-qdmi, also MQSC's, on QDMI 1.3.3, no Python
+# dependencies of its own) is what shared-dir/ibm-qdmi-qktr.py opens
+# through the same driver to reach the IBM simulator over QDMI; its qiskit
+# extra needs mqt-core 4 too, so it is not installed. setup/requirements.txt
+# supplies Qiskit.
 # DEFw finds libfabric through pkg-config. Without libfabric's .pc file on the
 # search path it still builds, as a TCP-only transport, so the last check makes
 # sure the installed library links libfabric.
@@ -430,8 +437,9 @@ RUN set -ex \
         -r "${QFW_IMAGE_SOURCE}/setup/build-requirements.txt" \
         -r "${QFW_IMAGE_SOURCE}/setup/requirements.txt" \
         "qrmi==${QRMI_VERSION}" \
-        'iqm-qdmi>=1.4' \
+        'iqm-qdmi==1.4.0' \
         'amazon-braket-qdmi==1.2.0' \
+        'ibm-qdmi==0.1.1' \
         'mqt-core==3.9.2' \
         'jsonschema>=4' \
     && export PKG_CONFIG_PATH="${LIBFABRIC_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" \
@@ -514,7 +522,9 @@ ARG MQT_CORE_SOURCE_REVISION
 # build-time pairing; its QDMI device library is a dlopen'd C ABI, unaffected
 # by the MLIR-enabled mqt-core 4.x installed below, so --no-deps skips that
 # pin and qiskit-algorithms (its only other qiskit-extra dependency not
-# already satisfied) is installed directly.
+# already satisfied) is installed directly. It is pinned to 1.4.0 for the
+# same reason as in the QFw venv: 1.5.0's Qiskit plugin needs mqt-core
+# ~=4.1.1's mqt.core.qdmi.builtin_driver, which MQT_CORE_REF predates.
 RUN set -ex \
     && git clone "${MQT_CORE_REPOSITORY}" "${MQT_CORE_SOURCE}" \
     && git -C "${MQT_CORE_SOURCE}" fetch origin "${MQT_CORE_REF}" \
@@ -528,7 +538,7 @@ RUN set -ex \
         "${MQT_CORE_SOURCE}" 'qiskit==2.5.2' \
     && rm -rf "${MQT_CORE_SOURCE}" \
     && uv pip install --python "${MQT_CC_VENV}" --no-deps \
-        'iqm-qdmi[qiskit]>=1.4' \
+        'iqm-qdmi[qiskit]==1.4.0' \
     && uv pip install --python "${MQT_CC_VENV}" 'qiskit-algorithms>=0.4.0'
 
 COPY shared-dir/mqt-cc-smoke-test.sbatch /tmp/mqt-cc-smoke-test.sbatch

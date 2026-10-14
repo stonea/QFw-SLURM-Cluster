@@ -5,28 +5,51 @@
 #   ./do_ibmsim.sh up         start it beside the running cluster
 #   ./do_ibmsim.sh down       remove it, keeping the S3 volume
 #
-# Three containers on the cluster network, none of them a Slurm node:
+# Four containers on the cluster network, none of them a Slurm node:
 #
 #   ibmsim          the simulator (ibmsim/Dockerfile), serving the Quantum
 #                   System API and its IAM token endpoint on :8290
 #   ibmsim-s3       RustFS, the S3-compatible store QRMI stages job input,
 #                   results and logs through (presigned URLs both ways)
 #   ibmsim-s3-init  one-shot: creates the bucket, then exits
+#   ibmsim-runtime  a Qiskit Runtime REST API front for the simulator
+#                   (ibmsim-runtime/app.py) on :8291 over HTTPS, for QDMI
+#                   clients
 #
-# QRMI's IBMQuantumSystem resource is the client, unchanged: point its
-# QRMI_IBM_QS_* settings at ibmsim:8290 and ibmsim-s3:9000 and the same code
-# path that reaches a real IBM system reaches this. shared-dir/ibmsim-test.sbatch
-# does that through the QFw shim, with every value below as its default, so
-# nothing has to be exported into a cluster container and the cluster needs no
-# recreating. The overlay can be in COMPOSE_FILE (./do_configure.sh --ibmsim),
-# so the stack starts with the cluster, or started afterwards with do_ibmsim.sh.
+# Two clients reach the simulator, over two IBM APIs:
+#
+# QRMI's IBMQuantumSystem resource speaks the Quantum System API, unchanged:
+# point its QRMI_IBM_QS_* settings at ibmsim:8290 and ibmsim-s3:9000 and the
+# same code path that reaches a real IBM system reaches this.
+# shared-dir/ibm-qrmi-qktr.sbatch does that with QRMI's Qiskit primitives.
+#
+# MQSC's IBM QDMI device library (ibm-qdmi-device, the ibm-qdmi package in the
+# qfw venv) speaks IBM Quantum Platform's Qiskit Runtime REST API instead:
+# parameters inline in the job, results from GET /v1/jobs/{id}/results, no
+# S3. ibmsim-runtime translates that onto the simulator, staging each job's
+# input and results in the S3 store itself, so the simulator stays the
+# execution engine. shared-dir/ibm-qdmi-qktr.sbatch runs a circuit that
+# way, through MQT Core's QDMI driver. The device library allows plain HTTP
+# only to loopback addresses and verifies every HTTPS peer, so ibmsim-runtime
+# serves HTTPS with a certificate from a private CA it creates at each start
+# (ibmsim-runtime/tls.sh) and publishes the CA certificate to
+# shared-dir/ibmsim-tls/ca.crt. A client names that file in CURL_CA_BUNDLE
+# and connects to https://ibmsim-runtime:8291 directly.
+#
+# Both tests default to every value below, so nothing has to be exported
+# into a cluster container and the cluster needs no recreating. The overlay
+# can be in COMPOSE_FILE (./do_configure.sh --ibmsim), so the stack starts
+# with the cluster, or started afterwards with do_ibmsim.sh.
 #
 # The API key, service CRN and S3 key pair are shared secrets between the
 # simulator and its clients, and nothing more: the simulator accepts whatever
 # it is started with, and it is reachable only on the cluster network. They are
-# placeholders, not credentials, and ibmsim-test.sbatch repeats them. Override
-# in qfw-install.env with IBMSIM_API_KEY, IBMSIM_SERVICE_CRN,
-# IBMSIM_S3_ACCESS_KEY, IBMSIM_S3_SECRET_KEY, and pass the same to the test.
+# placeholders, not credentials, and the tests repeat them. Override in
+# qfw-install.env with IBMSIM_API_KEY, IBMSIM_SERVICE_CRN, IBMSIM_S3_ACCESS_KEY,
+# IBMSIM_S3_SECRET_KEY, and pass the same to the tests. The CRN placeholder has
+# the shape of a real IBM Quantum instance CRN because the QDMI device library
+# validates it (ten colon-separated fields, service quantum-computing, a
+# region it knows) before it sends a request; the simulator only compares it.
 #
 # Upstream's compose also runs a socat proxy in the simulator's network
 # namespace, so that a client on the docker host can hand it presigned URLs
@@ -34,8 +57,10 @@
 # ibmsim-s3 on the cluster network, so the URL a job signs is the URL the
 # simulator fetches, and SigV4's host binding holds.
 #
-# Ports on the host: the simulator's Swagger UI on 127.0.0.1:${IBMSIM_PORT:-8290}/docs
-# and the RustFS console on 127.0.0.1:${IBMSIM_S3_CONSOLE_PORT:-9001}, both for
+# Ports on the host: the simulator's Swagger UI on 127.0.0.1:${IBMSIM_PORT:-8290}/docs,
+# the Runtime front's on https://127.0.0.1:${IBMSIM_RUNTIME_PORT:-8291}/docs
+# (its certificate also names localhost and 127.0.0.1) and the
+# RustFS console on 127.0.0.1:${IBMSIM_S3_CONSOLE_PORT:-9001}, all for
 # inspection only. Images are pinned; the simulator ref is pinned in its
 # Dockerfile and can be moved with IBMSIM_REF.
 
@@ -52,13 +77,45 @@ services:
     environment:
       QSASIM_BIND_PORT: "8290"
       QSASIM_IAM_APIKEY: ${IBMSIM_API_KEY:-qfw-ibmsim-apikey}
-      QSASIM_SERVICE_CRN: ${IBMSIM_SERVICE_CRN:-crn:v1:local:qfw-ibmsim}
+      QSASIM_SERVICE_CRN: ${IBMSIM_SERVICE_CRN:-crn:v1:bluemix:public:quantum-computing:us-east:a/qfw-ibmsim:qfw-ibmsim::}
       PYTHONUNBUFFERED: "1"
     expose:
       - "8290"
     ports:
       - "127.0.0.1:${IBMSIM_PORT:-8290}:8290"
     depends_on:
+      ibmsim-s3-init:
+        condition: service_completed_successfully
+    networks:
+      - slurm-network
+
+  ibmsim-runtime:
+    build:
+      context: ./ibmsim-runtime
+    image: ${IBMSIM_RUNTIME_IMAGE:-qfw-ibmsim-runtime:local}
+    container_name: ibmsim-runtime
+    hostname: ibmsim-runtime
+    environment:
+      IBMSIM_RUNTIME_BIND_PORT: "8291"
+      IBMSIM_QSAPI_URL: http://ibmsim:8290
+      IBMSIM_S3_ENDPOINT: http://ibmsim-s3:9000
+      IBMSIM_S3_BUCKET: ${IBMSIM_S3_BUCKET:-qfw-ibmsim}
+      IBMSIM_S3_REGION: ${IBMSIM_S3_REGION:-us-east-1}
+      IBMSIM_S3_ACCESS_KEY: ${IBMSIM_S3_ACCESS_KEY:-qfw-ibmsim-access}
+      IBMSIM_S3_SECRET_KEY: ${IBMSIM_S3_SECRET_KEY:-qfw-ibmsim-secret}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      # Only the CA certificate of its HTTPS listener is written here
+      # (ibmsim-runtime/tls.sh), for cluster clients to trust:
+      # /mnt/ibmsim-tls/ca.crt in a cluster container.
+      - ./shared-dir/ibmsim-tls:/tls:z
+    expose:
+      - "8291"
+    ports:
+      - "127.0.0.1:${IBMSIM_RUNTIME_PORT:-8291}:8291"
+    depends_on:
+      ibmsim:
+        condition: service_started
       ibmsim-s3-init:
         condition: service_completed_successfully
     networks:

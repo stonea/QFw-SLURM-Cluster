@@ -317,14 +317,25 @@ with `MQT-CC QIR SMOKE TEST: PASS`.
 [qrmi-community/simulated_quantum_resource](https://github.com/qrmi-community/simulated_quantum_resource):
 IBM's Quantum System REST API with Qiskit Aer and the `qiskit-ibm-runtime`
 fake backends behind it, plus the S3-compatible store (RustFS) that QRMI stages
-job input and results through. QRMI's `IBMQuantumSystem` resource is the
-client, unchanged from what reaches a real IBM system; only the addresses
-differ. This is the only way to exercise the shim's IBM execution path
-(`QrmiDriver._run_ibm_circuit`: target fetch, ISA transpile, SamplerV2 payload,
-S3 round trip, `qhw-ibm` normalization) without an IBM account.
+job input and results through. Two clients reach it, over two IBM APIs:
 
-Start it beside the running cluster (the first `up` builds the simulator image
-from the ref pinned in `ibmsim/Dockerfile`):
+- QRMI's `IBMQuantumSystem` resource, unchanged from what reaches a real IBM
+  system; only the addresses differ. It is the same client the shim's IBM
+  execution path (`QrmiDriver._run_ibm_circuit`) drives, so the simulator also
+  lets that path run without an IBM account.
+- MQSC's IBM QDMI device library
+  ([ibm-qdmi-device](https://github.com/munich-quantum-software/ibm-qdmi-device),
+  the `ibm-qdmi` package in the qfw venv), opened through MQT Core's QDMI
+  driver like the IQM and Braket libraries. It speaks IBM Quantum Platform's
+  Qiskit Runtime REST API, not the Quantum System API, so the overlay also runs
+  `ibmsim-runtime` (`ibmsim-runtime/app.py`): a front that takes Runtime-shaped
+  requests (parameters inline, results from `GET /v1/jobs/{id}/results`),
+  stages each job's input and results in the S3 store itself and submits it to
+  the simulator in Quantum System shape. The simulator stays the execution
+  engine.
+
+Start it beside the running cluster (the first `up` builds the simulator and
+Runtime-front images; the simulator's ref is pinned in `ibmsim/Dockerfile`):
 
 ```bash
 ./do_ibmsim.sh up
@@ -336,25 +347,32 @@ or configure it in so `do_startup.sh` starts it with the cluster:
 ./do_configure.sh --ibmsim ...
 ```
 
-The three containers (`ibmsim`, `ibmsim-s3`, `ibmsim-s3-init`) join the cluster
-network and are not Slurm nodes. No cluster container needs recreating: the API
-key, service CRN and S3 key pair are placeholders shared by the overlay and the
-test, and the test defaults to the in-network addresses.
+The four containers (`ibmsim`, `ibmsim-s3`, `ibmsim-s3-init`, `ibmsim-runtime`)
+join the cluster network and are not Slurm nodes. No cluster container needs
+recreating: the API key, service CRN and S3 key pair are placeholders shared by
+the overlay and the tests, and the tests default to the in-network addresses.
+The CRN placeholder has the shape of a real instance CRN because the QDMI
+device library validates it before sending anything.
 
-`shared-dir/ibmsim-test.sbatch` runs a 3-qubit GHZ circuit through the shim as a
-Python module, the IBM counterpart of `iqm-shim-mqt.sbatch`. Unlike that script it
-needs no `mqt-cc` step, because the IBM driver transpiles to the backend's ISA
-itself. Submit from inside `slurmctld`:
+### Through QRMI: `ibm-qrmi-qktr.sbatch`
+
+`shared-dir/ibm-qrmi-qktr.sbatch` runs a 3-qubit GHZ circuit through QRMI
+directly, without the shim: it points QRMI's `{backend}_QRMI_IBM_QS_*` settings
+(and `{backend}_QRMI_JOB_TIMEOUT_SECONDS`) at the simulator and its S3 store,
+opens a `QuantumResource` of type `IBMQuantumSystem`, transpiles against the
+`Target` from QRMI's `get_backend()` (the simulator's configuration and
+properties) and runs it with QRMI's `SamplerV2`, which stages the job through
+S3 and deletes it when its results are in. Submit from inside `slurmctld`:
 
 ```bash
 docker exec -w /workspace/qfw-container-base slurmctld \
-  bash /mnt/sbatch_poll_wait.sh /mnt/ibmsim-test.sbatch
+  bash /mnt/sbatch_poll_wait.sh /mnt/ibm-qrmi-qktr.sbatch
 ```
 
-By default it tests the developer override under `shared-dir/`; add
-`-e QFW_PREFIX=/opt/openqse/qfw` to test the image installation.
-`QFW_QPU_DEVICE_ALIAS` selects the simulated backend (`fake_lagos` by default;
-`fake_cairo`, `fake_brisbane`, `fake_torino`). Pass
+By default it tests the image installation; add
+`-e QFW_PREFIX=/workspace/qfw-container-base/qfw-install` to test the
+developer override. `QFW_QPU_DEVICE_ALIAS` selects the simulated backend
+(`fake_lagos` by default; `fake_cairo`, `fake_brisbane`, `fake_torino`). Pass
 such settings through the environment, as `docker exec -e` does; on this
 cluster `sbatch --export=ALL,VAR=...` makes slurmd fetch the login environment
 with `su`, which fails and takes the node down.
@@ -363,19 +381,115 @@ Expected (abridged; the noise model is the fake backend's, so FakeLagos leaves
 about 70% of the shots in the GHZ states and FakeBrisbane about 95%):
 
 ```text
-device: ibm-qsa-sim (ibm:fake_lagos), 7 qubits via qrmi
-routing run_circuit -> qrmi
+device: fake_lagos (7 qubits)
 counts: {'000': 370, '001': 20, '010': 57, '011': 78, '100': 70, '101': 57, '110': 24, '111': 348}
-GHZ fidelity proxy: 718/1024 shots in |000> + |111>
-IBMSIM GHZ TEST: PASS
 ```
 
-The check is that `000` and `111` are the two most frequent outcomes and hold
-a majority between them. If the stack is down the job fails at once with
+`000` and `111` should dominate. If the stack is down the job fails at once with
 `No IBM Quantum System API simulator at http://ibmsim:8290`. The simulator's
 Swagger UI is at `http://localhost:8290/docs` and `./do_ibmsim.sh logs` follows
 its log, where every job's presigned S3 URLs and Aer output appear.
 `./do_ibmsim.sh purge` also removes the S3 volume.
+
+### Through QDMI: `ibm-qdmi-qktr.sbatch`
+
+`shared-dir/ibm-qdmi-qktr.sbatch` runs the same GHZ circuit on the same
+simulator over QDMI, the way `iqm-qdmi-qktr.py` reaches IQM: it registers the IBM
+device library under the ID its package publishes and opens it as MQT Core's
+Qiskit `QDMIBackend`, with the API key as the token, the backend as `custom1`,
+the CRN as `custom2` and both URLs pointed at the Runtime front. The backend's
+`Target` carries what the session reports (operations with their loci,
+fidelities and durations); the circuit is transpiled against it and run through
+the backend's sampler, which submits OpenQASM 3 over QDMI. The OpenQASM 3
+export is `ibm.qdmi`'s, since the simulator's importer rejects the classical-bit
+initialization MQT Core's default serializer emits. (`ibm.qdmi.qiskit.IBMBackend`
+would do both, but in ibm-qdmi 0.1.1 it fails building its `Target` because the
+device library does not report a parameter count for parameterless gates.) It
+does not go through the shim; `ibm-shim-qktr.sbatch` runs the same leg through
+the shim's `QdmiDriver`.
+
+The device library allows plain HTTP only to loopback addresses and verifies
+every HTTPS peer, so `ibmsim-runtime` serves HTTPS. At each start it creates
+a private CA, signs a certificate for `ibmsim-runtime`, `localhost` and
+`127.0.0.1` with it, discards the CA key and publishes the CA certificate to
+`shared-dir/ibmsim-tls/ca.crt` (`/mnt/ibmsim-tls/ca.crt` in the cluster;
+`ibmsim-runtime/tls.sh`). The job points `CURL_CA_BUNDLE`, which the device
+library reads for its trust store, at that file and connects to
+`https://ibmsim-runtime:8291` directly. Submit the same way, with the same
+environment settings:
+
+```bash
+docker exec -w /workspace/qfw-container-base slurmctld \
+  bash /mnt/sbatch_poll_wait.sh /mnt/ibm-qdmi-qktr.sbatch
+```
+
+The image installs `ibm-qdmi` into its qfw venv; an image built before it was
+added needs rebuilding with `./do_build.sh`, and the job says so if it is
+missing. Expected:
+
+```text
+device: fake_lagos (7 qubits)
+counts: {'000': 371, '001': 16, '010': 53, '011': 85, '100': 64, '101': 58, '110': 18, '111': 359}
+```
+
+`000` and `111` should dominate. The physical qubits matter: FakeLagos's
+qubit 2 reads out wrongly 46% of the time. The `Target` carries QDMI's per-site
+measurement fidelity, which steers the transpiler to physical qubits
+`[3, 1, 0]` instead. If the stack is down the job fails at once with
+`No Runtime front for the IBM simulator at https://ibmsim-runtime:8291`, or,
+if the front has never started, with `No CA certificate at
+/mnt/ibmsim-tls/ca.crt`. The front's Swagger UI is at
+`https://localhost:8291/docs` (trust `shared-dir/ibmsim-tls/ca.crt`, or accept
+the browser's warning; `curl --cacert shared-dir/ibmsim-tls/ca.crt
+https://localhost:8291/version` from the host), and its log (in
+`./do_ibmsim.sh logs`) shows every Runtime request and the simulator job id it
+became.
+
+### Through the shim: `ibm-shim-qktr.sbatch`
+
+`shared-dir/ibm-shim-qktr.sbatch` runs the GHZ circuit through QFw's QRMI/QDMI
+shim (`services/svc_lib_qpm`) as a Python module, the IBM counterpart of
+`iqm-shim-qktr.sbatch`. It transpiles with Qiskit's `transpile()` against the
+IBM QDMI device as MQT Core's `QDMIBackend`, sends the circuit as QPY, and
+routes `run_circuit` to either library: `SHIM_TEST_LIB=qrmi` uses
+`QrmiDriver`'s IBM path (QRMI's `IBMQuantumSystem` against the simulator and
+its S3 store), and `SHIM_TEST_LIB=qdmi` uses `QdmiDriver`'s IBM profile
+(`IbmQdmiProfile` in `drivers/qdmi_profiles.py`: the ibm-qdmi device library
+against the Runtime front, OpenQASM 3). Both drivers see the circuit is
+already native and keep its layout. Unset, the descriptor's execution owner
+(QRMI) runs it. The synthetic descriptor carries both legs' settings: the
+Quantum System API, IAM and S3 for QRMI, and `runtime_endpoint` and
+`runtime_auth_url` (the `runtime-endpoint` and `runtime-auth-url`
+device-access keys) for QDMI, which unset leave the library on IBM Cloud.
+
+```bash
+docker exec -e SHIM_TEST_LIB=qrmi -w /workspace/qfw-container-base slurmctld \
+  bash /mnt/sbatch_poll_wait.sh /mnt/ibm-shim-qktr.sbatch
+docker exec -e SHIM_TEST_LIB=qdmi -w /workspace/qfw-container-base slurmctld \
+  bash /mnt/sbatch_poll_wait.sh /mnt/ibm-shim-qktr.sbatch
+```
+
+The IBM profile needs a QFw with the IBM profile in `qdmi_profiles.py` and
+`ibm-qdmi` in the venv. The image's venv has `ibm-qdmi`, but until the profile
+reaches QFw's `main` the image's `/opt/openqse/qfw` install, which the login
+environment's `QFW_PREFIX` points at, lacks it, so the job falls back to the
+developer install under `QFW_BASE` on the image's venv when that has it, and
+says so. Expected
+(FakeCairo):
+
+```text
+device: ibm-qsa-sim (ibm:fake_cairo)
+routing run_circuit -> qdmi
+circuit format: qpy+gzip
+counts: {'000': 469, '001': 10, '010': 4, '011': 16, '100': 11, '101': 7, '110': 7, '111': 500}
+```
+
+The simulator counts every job it still holds against a backend's five
+execution lanes, finished or not, and answers 429 beyond that. The QRMI route
+deletes each job once its results are in. A Runtime client never deletes its
+jobs, so `ibmsim-runtime` deletes a job upstream as soon as it sees it end
+and keeps its final record to keep answering for it, the way Runtime frees a
+lane when a job ends.
 
 ## What to capture
 
@@ -386,5 +500,6 @@ leg, whether the QRMI leg ran or reported unavailable, and whether the
 For the `mqt-cc` smoke test, capture `mqt-cc-smoke-test.out` or the Slurm job's
 `mqt-cc-smoke-test.<job-id>.out`.
 
-For the IBM simulator test, capture the job's `slurm-<job-id>.out`: the backend
-alias and qubit count, the counts line and the `GHZ fidelity proxy` line.
+For the IBM simulator tests, capture the job's `slurm-<job-id>.out`: the backend
+alias and qubit count, the counts line and the `GHZ fidelity proxy` line, and
+for the QDMI test the physical qubits the transpiler chose.
