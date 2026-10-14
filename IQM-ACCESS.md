@@ -151,8 +151,8 @@ look like code or device faults.
 > ```
 >
 > That installs to `shared-dir/qfw-install`, which every node sees. Re-run it
-> with `--skip-venv` after changing QFw source: the install tree is a copy, so
-> edits under `shared-dir/QFw` do not take effect until you reinstall.
+> after changing QFw source: the install tree is a copy, so edits under
+> `shared-dir/QFw` do not take effect until you reinstall.
 
 On the ORNL network:
 

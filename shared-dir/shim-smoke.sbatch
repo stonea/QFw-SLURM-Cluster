@@ -32,7 +32,7 @@ echo "[`date`] shim-smoke on `hostname`"
 
 QFW_BASE="${QFW_BASE:-/workspace/qfw-container-base}"
 QFW_PREFIX="${QFW_PREFIX:-${QFW_BASE}/qfw-install}"
-QFW_VENV="${QFW_VENV:-${QFW_BASE}/qfw-venv}"
+QFW_VENV="${QFW_VENV:-/opt/openqse/qfw-venv}"
 
 if [ ! -f "${QFW_PREFIX}/bin/qfw-activate" ]; then
     echo "No QFw install at ${QFW_PREFIX}. Run ./do_qfw_build.sh on the host first." >&2

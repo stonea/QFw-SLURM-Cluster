@@ -412,7 +412,8 @@ RUN set -ex \
     && test -x "${TNQVM_PREFIX}/bin/circuit_runner.tnqvm" \
     && test -f "${TNQVM_PREFIX}/xacc/plugins/libtnqvm.so"
 
-# Keep the QFw shim's Python dependencies aligned with do_qfw_build.sh.
+# The QFw shim's Python dependencies. do_qfw_build.sh's developer override
+# runs on this venv too, so it has no list of its own to keep aligned.
 # Its QDMI driver needs mqt.core.qdmi.driver and the device libraries it
 # drives: IQM's (iqm-qdmi) and Amazon Braket's (amazon-braket-qdmi, MQSC's
 # library, built on QDMI 1.3.3 like iqm-qdmi 1.4; 1.2.0 is the last release

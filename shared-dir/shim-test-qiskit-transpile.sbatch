@@ -41,7 +41,7 @@ set -euo pipefail
 SCRIPT_DIR=/mnt
 QFW_BASE="${QFW_BASE:-/workspace/qfw-container-base}"
 QFW_PREFIX="${QFW_PREFIX:-${QFW_BASE}/qfw-install}"
-QFW_VENV="${QFW_VENV:-${QFW_BASE}/qfw-venv}"
+QFW_VENV="${QFW_VENV:-/opt/openqse/qfw-venv}"
 
 : "${QFW_API_KEY:?set QFW_API_KEY to your IQM Resonance API token}"
 

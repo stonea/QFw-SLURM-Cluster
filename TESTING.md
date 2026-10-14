@@ -43,18 +43,17 @@ and point the run at it, as described next.
 
 ## Optional: a developer override
 
-Clone QFw and MQT Core onto the shared mount and build them inside the running
-cluster:
+Clone QFw onto the shared mount and build it inside the running cluster:
 
 ```bash
 git clone --recursive https://github.com/openQSE/QFw.git shared-dir/QFw
-git clone https://github.com/munich-quantum-toolkit/core.git shared-dir/mqt-core
 ./do_qfw_build.sh
 ```
 
 `--recursive` is required, because the shim needs DEFw and the `qhw-*` packages.
-Check out the desired MQT Core ref before running `do_qfw_build.sh`. The image
-provides the MLIR toolchain used to build its Python package.
+The override has no venv of its own: it runs on the image's
+`/opt/openqse/qfw-venv`, so a change that needs a new Python dependency, or a
+different MQT Core, goes into the `Dockerfile` and a rebuilt image.
 QFw declares its submodules over SSH, so without GitHub SSH access to openQSE,
 rewrite them to HTTPS before cloning:
 
@@ -64,10 +63,10 @@ git config --global url."https://github.com/".insteadOf "git@github.com:"
 
 The override installs a copy of the sources into `shared-dir/qfw-install`, so
 editing `shared-dir/QFw/services/svc_lib_qpm` changes nothing until you
-reinstall. After the first build, reinstall without touching the venv:
+reinstall:
 
 ```bash
-./do_qfw_build.sh --skip-venv
+./do_qfw_build.sh
 ```
 
 ## Tier 1: local smoke (no credentials)
@@ -105,7 +104,6 @@ or a developer override:
 ```bash
 docker exec -w /workspace/qfw-container-base \
   -e QFW_PREFIX=/workspace/qfw-container-base/qfw-install \
-  -e QFW_VENV=/workspace/qfw-container-base/qfw-venv \
   slurmctld bash shim-smoke.sbatch 2>&1 | tee shared-dir/shim-smoke.out
 ```
 
@@ -166,8 +164,7 @@ docker exec -w /workspace/qfw-container-base \
   slurmctld bash shim-smoke.sbatch 2>&1 | tee shared-dir/shim-smoke.out
 ```
 
-Add the `QFW_PREFIX` and `QFW_VENV` options from Tier 1 to test a developer
-override instead.
+Add the `QFW_PREFIX` option from Tier 1 to test a developer override instead.
 
 Expected additional lines, replacing the `skipped` line:
 
@@ -220,18 +217,17 @@ image and not your override, however recently you ran `do_qfw_build.sh`.
 It names the prefix differently from the smoke, which is worth knowing before
 you set anything. The smoke reads `QFW_PREFIX`; `qfw-site-services` reads
 `QFW_INSTALL_PREFIX` and does not look at `QFW_PREFIX` at all. Both read
-`QFW_VENV`, with different defaults. So exporting the pair the smoke wants
-gives you a half override, the image's QFw running against your override's
-venv, which is worse than either. Set the two it actually reads:
+`QFW_VENV`, and both default it to the image's `/opt/openqse/qfw-venv`, which
+the override also runs on. So exporting `QFW_PREFIX` leaves the image's QFw
+running. Set the one it actually reads:
 
 ```bash
 docker exec \
   -e QFW_INSTALL_PREFIX=/workspace/qfw-container-base/qfw-install \
-  -e QFW_VENV=/workspace/qfw-container-base/qfw-venv \
   slurmctld /bin/bash -lc 'qfw-site-services restart --target all'
 ```
 
-`qfw-site-services` forwards both over SSH to each node, and the shared mount is
+`qfw-site-services` forwards it over SSH to each node, and the shared mount is
 present on all of them, so the override resolves everywhere.
 
 **The device configuration.** Site services read
@@ -289,8 +285,8 @@ durable, edit `config/` on the host and delete the installed copy so the next
 The image builds MQT Core from the ref selected by `do_configure.sh` and installs
 it with Qiskit at `/opt/openqse/mqt-cc-venv`. This separate
 environment allows the compiler and QFw to use different Qiskit versions.
-`do_qfw_build.sh` builds the mounted MQT Core checkout into
-`/workspace/qfw-container-base/mqt-cc-venv` unless `--skip-venv` is used.
+It is the only mqt-cc environment; to try another MQT Core ref, select it with
+`do_configure.sh --mqt-core-ref` and rebuild the image.
 
 `shared-dir/mqt-cc-smoke-test.sbatch` compiles a Qiskit circuit for
 MQT Core's bundled IQM Garnet model to QIR Base. It uses QDMI to read the
@@ -305,8 +301,6 @@ docker exec -w /workspace/qfw-container-base slurmctld \
   bash mqt-cc-smoke-test.sbatch 2>&1 | tee shared-dir/mqt-cc-smoke-test.out
 ```
 
-For the developer environment, add
-`-e MQT_CC_VENV=/workspace/qfw-container-base/mqt-cc-venv` to `docker exec`.
 To test on a Slurm application node, submit from inside `slurmctld`:
 
 ```bash
@@ -358,9 +352,9 @@ docker exec -w /workspace/qfw-container-base slurmctld \
 ```
 
 By default it tests the developer override under `shared-dir/`; add
-`-e QFW_PREFIX=/opt/openqse/qfw -e QFW_VENV=/opt/openqse/qfw-venv` to test the
-image installation. `QFW_QPU_DEVICE_ALIAS` selects the simulated backend
-(`fake_lagos` by default; `fake_cairo`, `fake_brisbane`, `fake_torino`). Pass
+`-e QFW_PREFIX=/opt/openqse/qfw` to test the image installation.
+`QFW_QPU_DEVICE_ALIAS` selects the simulated backend (`fake_lagos` by default;
+`fake_cairo`, `fake_brisbane`, `fake_torino`). Pass
 such settings through the environment, as `docker exec -e` does; on this
 cluster `sbatch --export=ALL,VAR=...` makes slurmd fetch the login environment
 with `su`, which fails and takes the node down.

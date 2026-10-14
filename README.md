@@ -276,16 +276,18 @@ Create development directories only as needed. A typical layout is:
 ```text
 shared-dir/
   QFw/          # optional active QFw checkout
-  qfw-venv/     # optional Python venv created inside the container
   qfw-build/    # optional QFw build tree
   qfw-install/  # optional QFw install tree
   benchmarks/   # optional benchmark outputs
   rocm/         # optional ROCm prefix for ROCm/HIP builds
-  mqt-core/     # optional active MQT Core checkout
-  mqt-cc-venv/  # optional compiler Python venv created inside the container
 ```
 
-1. Configure the host mount and clone [QFw] and MQT Core:
+The override has no Python environment of its own. It runs on the image's
+`/opt/openqse/qfw-venv`, and MQT Core's compiler environment is the image's
+`/opt/openqse/mqt-cc-venv`, so Python dependency or MQT Core changes go into
+the `Dockerfile` (or `do_configure.sh --mqt-core-ref`) and a rebuilt image.
+
+1. Configure the host mount and clone [QFw]:
 
 ```bash
 QFW_CONTAINER_BASE=/path/to/shared-dir
@@ -294,8 +296,6 @@ QFW_CONTAINER_BASE=/path/to/shared-dir
 
 git clone --recursive git@github.com:openQSE/QFw.git \
   "${QFW_CONTAINER_BASE}/QFw"
-git clone https://github.com/munich-quantum-toolkit/core.git \
-  "${QFW_CONTAINER_BASE}/mqt-core"
 ```
 
 2. Start the cluster, then build the shared override from the host:
@@ -310,7 +310,7 @@ git clone https://github.com/munich-quantum-toolkit/core.git \
 ```bash
 ./do_ssh.sh
 source /workspace/qfw-container-base/qfw-install/bin/qfw-activate \
-  --venv /workspace/qfw-container-base/qfw-venv
+  --venv /opt/openqse/qfw-venv
 cd "${QFW_SHARE_DIR}/examples"
 ./qfw_mpi_smoke.sh
 qfw-deactivate
@@ -751,13 +751,10 @@ If [Slurm] config changes are not visible inside the running containers:
 ./update_slurmfiles.sh slurm.conf gres.conf rest.conf cgroup.conf
 ```
 
-If the mounted developer venvs came from an older image:
+If the developer override was built against an older image:
 
 ```bash
-docker exec slurmctld rm -rf \
-  /workspace/qfw-container-base/qfw-venv \
-  /workspace/qfw-container-base/mqt-cc-venv
-./do_qfw_build.sh
+./do_qfw_build.sh --clean
 ```
 
 If Docker cache is suspect:

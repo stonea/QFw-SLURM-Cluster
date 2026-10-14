@@ -6,36 +6,38 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--jobs N] [--clean] [--skip-venv] [--container NAME]
+Usage: $(basename "$0") [--jobs N] [--clean] [--container NAME]
 
-Build and install QFw + DEFw and MQT Core developer overrides inside the
-running cluster from checkouts on the shared mount. The cluster image's official
+Build and install a QFw + DEFw developer override inside the running cluster
+from the checkout on the shared mount. The cluster image's official
 installation remains unchanged.
 
-Everything lands on the shared mount, so every node sees the same install and
-the tree being built is your own shared-dir/QFw checkout:
+The build and install trees land on the shared mount, so every node sees the
+same install and the tree being built is your own shared-dir/QFw checkout:
 
   source              \${QFW_BASE}/QFw
-  python venv         \${QFW_BASE}/qfw-venv
   build tree          \${QFW_BASE}/qfw-build
   install tree        \${QFW_BASE}/qfw-install
-  mqt-core source     \${QFW_BASE}/mqt-core
-  mqt-cc venv         \${QFW_BASE}/mqt-cc-venv
+
+There is no developer venv. The override runs on the image's Python
+environment, /opt/openqse/qfw-venv, which already carries QFw's Python
+dependencies, including MQT Core and the QRMI/QDMI device libraries. A change
+that needs a new Python dependency goes into the Dockerfile and the image is
+rebuilt. MQT Core's compiler environment is likewise the image's
+/opt/openqse/mqt-cc-venv only.
 
 To build a second checkout under the shared mount into its own prefix, set
-QFW_DEV_SRC, QFW_DEV_BUILD and QFW_DEV_PREFIX (and QFW_DEV_VENV to use another
-venv) to container paths, for example
+QFW_DEV_SRC, QFW_DEV_BUILD and QFW_DEV_PREFIX to container paths, for example
 QFW_DEV_SRC=/workspace/qfw-container-base/QFw-aws. The default install is
 left as it is.
 
 Activate the result inside a container with:
 
-  source \${QFW_PREFIX}/bin/qfw-activate --venv \${QFW_VENV}
+  source \${QFW_BASE}/qfw-install/bin/qfw-activate --venv /opt/openqse/qfw-venv
 
 Options:
   --jobs N          Parallel build jobs (default: nproc in the container)
   --clean           Remove the QFw build and install trees first
-  --skip-venv       Reuse the existing venv, skip Python installs
   --container NAME  Container to build in (default: slurmctld)
   -h, --help        Show this help
 EOF
@@ -43,7 +45,6 @@ EOF
 
 JOBS=""
 CLEAN=false
-SKIP_VENV=false
 CONTAINER=slurmctld
 
 while [ "$#" -gt 0 ]; do
@@ -52,7 +53,6 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] || { echo "--jobs requires a number" >&2; exit 2; }
             JOBS="$2"; shift 2 ;;
         --clean)   CLEAN=true; shift ;;
-        --skip-venv) SKIP_VENV=true; shift ;;
         --container)
             [ "$#" -ge 2 ] || { echo "--container requires a name" >&2; exit 2; }
             CONTAINER="$2"; shift 2 ;;
@@ -66,10 +66,6 @@ if ! docker ps --format '{{.Names}}' | grep -qx "${CONTAINER}"; then
     exit 1
 fi
 
-# The image exports QRMI_VERSION so the bindings match the C ABI it ships.
-# Older images predate that ENV, so fall back to the Dockerfile's pinned ARG.
-QRMI_VERSION_HOST="$(sed -n 's/^ARG QRMI_VERSION=//p' "${SCRIPT_DIR}/Dockerfile" | head -1)"
-
 # The host path behind the shared mount, so the preflight checks below can name
 # the directory the user actually has to fix rather than the container path.
 QFW_HOST_BASE="$(sed -n 's/^QFW_CONTAINER_BASE=//p' "${SCRIPT_DIR}/qfw-install.env" 2>/dev/null | head -1)"
@@ -81,14 +77,11 @@ echo "Building QFw + DEFw inside ${CONTAINER}"
 # into its own prefix, beside the default one, so two branches can be under
 # test at once. They are read inside the container, so pass them through.
 docker exec -i \
-    -e QFW_VERSION_FALLBACK="${QRMI_VERSION_HOST}" \
     -e QFW_BUILD_JOBS_OVERRIDE="${JOBS}" \
     -e QFW_DO_CLEAN="${CLEAN}" \
-    -e QFW_SKIP_VENV="${SKIP_VENV}" \
     -e QFW_HOST_BASE="${QFW_HOST_BASE}" \
     -e QFW_CONTAINER_NAME="${CONTAINER}" \
     -e QFW_DEV_SRC="${QFW_DEV_SRC:-}" \
-    -e QFW_DEV_VENV="${QFW_DEV_VENV:-}" \
     -e QFW_DEV_BUILD="${QFW_DEV_BUILD:-}" \
     -e QFW_DEV_PREFIX="${QFW_DEV_PREFIX:-}" \
     "${CONTAINER}" bash -s <<'REMOTE'
@@ -96,13 +89,11 @@ set -euo pipefail
 
 QFW_BASE="${QFW_BASE:-/workspace/qfw-container-base}"
 QFW_SRC="${QFW_DEV_SRC:-${QFW_BASE}/QFw}"
-QFW_VENV="${QFW_DEV_VENV:-${QFW_BASE}/qfw-venv}"
+QFW_VENV="${QFW_IMAGE_VENV:-/opt/openqse/qfw-venv}"
 QFW_BUILD="${QFW_DEV_BUILD:-${QFW_BASE}/qfw-build}"
 QFW_PREFIX="${QFW_DEV_PREFIX:-${QFW_BASE}/qfw-install}"
 QFW_HOST_BASE="${QFW_HOST_BASE:-shared-dir}"
 QFW_CONTAINER_NAME="${QFW_CONTAINER_NAME:-slurmctld}"
-MQT_CORE_SRC="${QFW_BASE}/mqt-core"
-export MLIR_DIR="${MLIR_DIR:-/opt/llvm-23.1.1/lib/cmake/mlir}"
 
 # DEFw finds libfabric through pkg-config, and nothing in the image puts
 # libfabric's .pc file on the search path. Without it DEFw builds a TCP-only
@@ -150,17 +141,9 @@ if [ ! -f "${QFW_SRC}/CMakeLists.txt" ]; then
     exit 1
 fi
 
-if [ "${QFW_SKIP_VENV}" != "true" ]; then
-    if [ ! -f "${MQT_CORE_SRC}/pyproject.toml" ]; then
-        echo "No MQT Core checkout at ${MQT_CORE_SRC}." >&2
-        echo "Clone it onto the shared mount from the host:" >&2
-        echo "    git clone https://github.com/munich-quantum-toolkit/core.git ${QFW_HOST_BASE}/mqt-core" >&2
-        exit 1
-    fi
-    if [ ! -f "${MLIR_DIR}/MLIRConfig.cmake" ]; then
-        echo "No MLIR installation at ${MLIR_DIR}. Rebuild the cluster image first." >&2
-        exit 1
-    fi
+if [ ! -x "${QFW_VENV}/bin/python" ]; then
+    echo "No Python environment at ${QFW_VENV}. Rebuild the cluster image first." >&2
+    exit 1
 fi
 
 if [ "${QFW_DO_CLEAN}" = "true" ]; then
@@ -168,51 +151,15 @@ if [ "${QFW_DO_CLEAN}" = "true" ]; then
     rm -rf "${QFW_BUILD}" "${QFW_PREFIX}"
 fi
 
-if [ "${QFW_SKIP_VENV}" != "true" ]; then
-    echo "== python venv: ${QFW_VENV}"
-    [ -d "${QFW_VENV}" ] || uv venv --python python3 "${QFW_VENV}"
-    # shellcheck disable=SC1091
-    source "${QFW_VENV}/bin/activate"
-    uv pip install --upgrade pip setuptools wheel
-    uv pip install -r "${QFW_SRC}/setup/build-requirements.txt"
-    uv pip install -r "${QFW_SRC}/setup/requirements.txt"
-
-    # Match the QRMI bindings to the C library built into the image.
-    qrmi_pin="${QRMI_VERSION:-${QFW_VERSION_FALLBACK:-}}"
-    if [ -n "${qrmi_pin}" ]; then
-        echo "== qrmi bindings pinned to ${qrmi_pin}"
-        uv pip install "qrmi==${qrmi_pin}"
-    else
-        echo "No QRMI version pin available; installing unpinned qrmi" >&2
-        uv pip install qrmi
-    fi
-    # The QFw driver needs the IQM device library, ID, and prefix. Version 1.4
-    # also provides the queue properties used with QDMI 1.3.3.
-    uv pip install 'iqm-qdmi>=1.4'
-
-    # The same driver reaches Amazon Braket through MQSC's device library.
-    # 1.2.0 is the last release on QDMI 1.3.3, the QDMI iqm-qdmi 1.4 uses, so
-    # it is pinned; its qiskit and pennylane extras need mqt-core 4, so none
-    # are installed.
-    uv pip install 'amazon-braket-qdmi==1.2.0'
-
-    # The QFw driver imports mqt.core.qdmi.driver, available since 3.9.
-    uv pip install 'mqt-core==3.9.2'
-
-    # The bundled QHW packages (qhw-data, qhw-iqm, qhw-admission, qhw-scheduler)
-    # are installed into site-packages by file copy, so their declared
-    # dependencies are not resolved. qhw-data needs jsonschema for
-    # schema validation, which the shim's qhw record building relies on.
-    uv pip install 'jsonschema>=4'
-else
-    # shellcheck disable=SC1091
-    source "${QFW_VENV}/bin/activate"
-fi
+echo "== python: ${QFW_VENV}"
+# shellcheck disable=SC1091
+source "${QFW_VENV}/bin/activate"
 
 echo "== cmake configure"
 cmake -S "${QFW_SRC}" -B "${QFW_BUILD}" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DCMAKE_INSTALL_PREFIX="${QFW_PREFIX}" \
+    -DPython3_EXECUTABLE="${QFW_VENV}/bin/python" \
     -DQFW_BUILD_BUNDLED_DEFW=ON
 
 echo "== cmake build (-j ${jobs})"
@@ -227,16 +174,6 @@ if ! ldd "${QFW_PREFIX}/lib/libdefw.so" 2>/dev/null | grep -q libfabric; then
     echo "${QFW_PREFIX}/lib/libdefw.so is missing or does not link libfabric." >&2
     echo "DEFw looks for ${LIBFABRIC_PREFIX}/lib/pkgconfig/libfabric.pc." >&2
     exit 1
-fi
-
-if [ "${QFW_SKIP_VENV}" != "true" ]; then
-    # Build mqt-cc from the mounted checkout, apart from QFw's SDK dependencies.
-    mqt_cc_venv="${QFW_BASE}/mqt-cc-venv"
-    [ -d "${mqt_cc_venv}" ] || uv venv --python python3 "${mqt_cc_venv}"
-    uv pip install --python "${mqt_cc_venv}" --upgrade pip
-    CMAKE_BUILD_PARALLEL_LEVEL="${jobs}" \
-        uv pip install --python "${mqt_cc_venv}" \
-        "${MQT_CORE_SRC}" 'qiskit==2.5.2'
 fi
 
 echo
