@@ -35,7 +35,8 @@
 #   QFW_QC_URL                     simulator endpoint (default: http://ibmsim:8290)
 #   IBMSIM_RUNTIME_URL             the Runtime front (default: https://ibmsim-runtime:8291)
 #   CURL_CA_BUNDLE                 (default: /mnt/ibmsim-tls/ca.crt)
-#   QFW_API_KEY                    (default: qfw-ibmsim-apikey)
+#   IBMSIM_API_KEY                 (default: qfw-ibmsim-apikey). An exported
+#                                  QFW_API_KEY is ignored; see below.
 #   IBMSIM_SERVICE_CRN             (default: crn:v1:bluemix:public:quantum-computing:us-east:a/qfw-ibmsim:qfw-ibmsim::)
 #   IBMSIM_S3_ENDPOINT             (default: http://ibmsim-s3:9000)
 #   IBMSIM_S3_BUCKET               (default: qfw-ibmsim)
@@ -70,6 +71,11 @@ QFW_VENV="${QFW_VENV:-/opt/openqse/qfw-venv}"
 IBMSIM_URL="${QFW_QC_URL:-http://ibmsim:8290}"
 RUNTIME_URL="${IBMSIM_RUNTIME_URL:-https://ibmsim-runtime:8291}"
 export CURL_CA_BUNDLE="${CURL_CA_BUNDLE:-/mnt/ibmsim-tls/ca.crt}"
+
+# sbatch exports the submitting shell, where QFW_API_KEY is often the IQM
+# Resonance token the iqm-* tests need. The simulator rejects it, so always
+# hand the shim the simulator's key.
+export QFW_API_KEY="${IBMSIM_API_KEY:-qfw-ibmsim-apikey}"
 
 echo "[$(date)] ibm-shim-qktr on $(hostname)"
 

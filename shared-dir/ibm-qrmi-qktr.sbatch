@@ -19,8 +19,9 @@
 #   the ibmsim stack running on the cluster network (./do_ibmsim.sh status)
 # Optional, each defaulting to what docker-compose.ibmsim.yml uses:
 #   QFW_QC_URL                     simulator endpoint (default: http://ibmsim:8290)
-#   QFW_API_KEY                    IAM API key the simulator accepts
-#                                  (default: qfw-ibmsim-apikey)
+#   IBMSIM_API_KEY                 IAM API key the simulator accepts
+#                                  (default: qfw-ibmsim-apikey). An exported
+#                                  QFW_API_KEY is ignored; see below.
 #   IBMSIM_SERVICE_CRN             (default: crn:v1:bluemix:public:quantum-computing:us-east:a/qfw-ibmsim:qfw-ibmsim::)
 #   IBMSIM_S3_ENDPOINT             (default: http://ibmsim-s3:9000)
 #   IBMSIM_S3_BUCKET               (default: qfw-ibmsim)
@@ -56,6 +57,11 @@ SCRIPT_DIR=/mnt
 QFW_BASE="${QFW_BASE:-/workspace/qfw-container-base}"
 QFW_PREFIX="${QFW_PREFIX:-${QFW_BASE}/qfw-install}"
 QFW_VENV="${QFW_VENV:-/opt/openqse/qfw-venv}"
+
+# sbatch exports the submitting shell, where QFW_API_KEY is often the IQM
+# Resonance token the iqm-* tests need. The simulator rejects it and QRMI then
+# fails with an opaque TypeError, so always hand the test the simulator's key.
+export QFW_API_KEY="${IBMSIM_API_KEY:-qfw-ibmsim-apikey}"
 
 echo "[$(date)] ibm-qrmi-qktr on $(hostname)"
 

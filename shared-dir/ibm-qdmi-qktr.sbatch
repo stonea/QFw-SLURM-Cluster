@@ -28,8 +28,9 @@
 #   IBMSIM_RUNTIME_URL             the Runtime front (default: https://ibmsim-runtime:8291)
 #   CURL_CA_BUNDLE                 CA the front's certificate is checked against
 #                                  (default: /mnt/ibmsim-tls/ca.crt)
-#   QFW_API_KEY                    IAM API key the simulator accepts
-#                                  (default: qfw-ibmsim-apikey)
+#   IBMSIM_API_KEY                 IAM API key the simulator accepts
+#                                  (default: qfw-ibmsim-apikey). An exported
+#                                  QFW_API_KEY is ignored; see below.
 #   IBMSIM_SERVICE_CRN             (default: crn:v1:bluemix:public:quantum-computing:us-east:a/qfw-ibmsim:qfw-ibmsim::)
 #   QFW_QPU_DEVICE_ALIAS           simulated backend: fake_lagos (7q, default),
 #                                  fake_cairo (27q), fake_brisbane (127q),
@@ -63,6 +64,11 @@ QFW_VENV="${QFW_VENV:-/opt/openqse/qfw-venv}"
 RUNTIME_URL="${IBMSIM_RUNTIME_URL:-https://ibmsim-runtime:8291}"
 export IBMSIM_RUNTIME_URL="${RUNTIME_URL}"
 export CURL_CA_BUNDLE="${CURL_CA_BUNDLE:-/mnt/ibmsim-tls/ca.crt}"
+
+# sbatch exports the submitting shell, where QFW_API_KEY is often the IQM
+# Resonance token the iqm-* tests need. The simulator rejects it, so always
+# hand the test the simulator's key.
+export QFW_API_KEY="${IBMSIM_API_KEY:-qfw-ibmsim-apikey}"
 
 echo "[$(date)] ibm-qdmi-qktr on $(hostname)"
 
