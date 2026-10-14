@@ -12,7 +12,7 @@
 # the IBM Quantum System API simulator from docker-compose.ibmsim.yml
 # (./do_ibmsim.sh up). QRMI's IBMQuantumSystem resource is the client,
 # unchanged from what reaches a real IBM system, so this is the IBM
-# counterpart of shim-test.sbatch with no account, no network and no cost.
+# counterpart of iqm-shim-mqt.sbatch with no account, no network and no cost.
 # The actual work is in ibmsim-test.py alongside this script.
 #
 # Requires:

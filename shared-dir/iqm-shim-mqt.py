@@ -2,7 +2,7 @@
 """Build a GHZ circuit with Qiskit and run it through QFw's QRMI/QDMI shim
 (services/svc_lib_qpm), used directly as a Python module -- no QPM service,
 no DEFw RPC. Targets IQM Resonance's free `garnet:mock` backend by default,
-the same target mqt-iqm.py uses, so this needs only a Resonance API token."""
+the same target iqm-qdmi-qktr.py uses, so this needs only a Resonance API token."""
 
 import base64
 import io

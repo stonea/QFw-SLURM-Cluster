@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=shim-test
+#SBATCH --job-name=iqm-shim-mqt
 #SBATCH --account=qfw-test
 #SBATCH --time=00:15:00
 #SBATCH --partition=normal
@@ -10,9 +10,9 @@
 # Run a GHZ circuit through QFw's QRMI/QDMI shim (services/svc_lib_qpm),
 # used directly as a Python module -- no QPM service, no DEFw RPC. Targets
 # IQM Resonance's free `garnet:mock` backend by default, the same target
-# mqt-iqm.sbatch uses -- no tunnel, no real QPU time, just a Resonance API
+# iqm-qdmi-qktr.sbatch uses -- no tunnel, no real QPU time, just a Resonance API
 # token. Companion to shim-smoke.sbatch (which only checks routing decisions,
-# not a real circuit run). The actual work is in shim-test.py alongside this
+# not a real circuit run). The actual work is in iqm-shim-mqt.py alongside this
 # script.
 #
 # Requires:
@@ -36,8 +36,13 @@
 #
 # Submit and print the output once per library:
 #
-#   jobid=$(sbatch --parsable --wait --export=ALL,QFW_API_KEY,SHIM_TEST_LIB=qdmi /mnt/shim-test.sbatch); cat slurm-${jobid}.out
-#   jobid=$(sbatch --parsable --wait --export=ALL,QFW_API_KEY,SHIM_TEST_LIB=qrmi /mnt/shim-test.sbatch); cat slurm-${jobid}.out
+#   SHIM_TEST_LIB=qdmi bash /mnt/sbatch_poll_wait.sh /mnt/iqm-shim-mqt.sbatch
+#   SHIM_TEST_LIB=qrmi bash /mnt/sbatch_poll_wait.sh /mnt/iqm-shim-mqt.sbatch
+#
+# with QFW_API_KEY exported. Pass options through the environment (sbatch
+# exports it by default) rather than --export=ALL,VAR=..., which makes slurmd
+# fetch the user's login environment with su; that needs a clone() this
+# container denies, and slurmd dies, taking the node down with it.
 
 set -euo pipefail
 
@@ -48,7 +53,7 @@ QFW_VENV="${QFW_VENV:-/opt/openqse/qfw-venv}"
 
 : "${QFW_API_KEY:?set QFW_API_KEY to your IQM Resonance API token}"
 
-echo "[$(date)] shim-test on $(hostname)"
+echo "[$(date)] iqm-shim-mqt on $(hostname)"
 
 if [ ! -f "${QFW_PREFIX}/bin/qfw-activate" ]; then
     echo "No QFw install at ${QFW_PREFIX}. Run ./do_qfw_build.sh on the host first." >&2
@@ -58,6 +63,6 @@ source "${QFW_PREFIX}/bin/qfw-activate" --venv "${QFW_VENV}"
 
 # Unbuffered: stdout is fully buffered once redirected to a file, so without
 # this, prints never reach slurm-<jobid>.out until the process exits.
-python -u "${SCRIPT_DIR}/shim-test.py"
+python -u "${SCRIPT_DIR}/iqm-shim-mqt.py"
 
-echo "[$(date)] shim-test done on $(hostname)"
+echo "[$(date)] iqm-shim-mqt done on $(hostname)"

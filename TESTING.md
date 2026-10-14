@@ -342,7 +342,7 @@ key, service CRN and S3 key pair are placeholders shared by the overlay and the
 test, and the test defaults to the in-network addresses.
 
 `shared-dir/ibmsim-test.sbatch` runs a 3-qubit GHZ circuit through the shim as a
-Python module, the IBM counterpart of `shim-test.sbatch`. Unlike that script it
+Python module, the IBM counterpart of `iqm-shim-mqt.sbatch`. Unlike that script it
 needs no `mqt-cc` step, because the IBM driver transpiles to the backend's ISA
 itself. Submit from inside `slurmctld`:
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=shim-test-qiskit-transpile
+#SBATCH --job-name=iqm-shim-qktr
 #SBATCH --account=qfw-test
 #SBATCH --time=00:15:00
 #SBATCH --partition=normal
@@ -10,10 +10,10 @@
 # Run a GHZ circuit through QFw's QRMI/QDMI shim (services/svc_lib_qpm),
 # used directly as a Python module -- no QPM service, no DEFw RPC. Targets
 # IQM Resonance's free `garnet:mock` backend by default, the same target
-# mqt-iqm.sbatch uses -- no tunnel, no real QPU time, just a Resonance API
-# token. Companion to shim-test.sbatch, which transpiles with mqt-cc instead
+# iqm-qdmi-qktr.sbatch uses -- no tunnel, no real QPU time, just a Resonance API
+# token. Companion to iqm-shim-mqt.sbatch, which transpiles with mqt-cc instead
 # of Qiskit's own transpile(). The actual work is in
-# shim-test-qiskit-transpile.py alongside this script.
+# iqm-shim-qktr.py alongside this script.
 #
 # Requires:
 #   QFW_API_KEY           your IQM Resonance API token
@@ -33,8 +33,13 @@
 #
 # Submit and print the output once per library:
 #
-#   jobid=$(sbatch --parsable --wait --export=ALL,QFW_API_KEY,SHIM_TEST_LIB=qdmi /mnt/shim-test-qiskit-transpile.sbatch); cat slurm-${jobid}.out
-#   jobid=$(sbatch --parsable --wait --export=ALL,QFW_API_KEY,SHIM_TEST_LIB=qrmi /mnt/shim-test-qiskit-transpile.sbatch); cat slurm-${jobid}.out
+#   SHIM_TEST_LIB=qdmi bash /mnt/sbatch_poll_wait.sh /mnt/iqm-shim-qktr.sbatch
+#   SHIM_TEST_LIB=qrmi bash /mnt/sbatch_poll_wait.sh /mnt/iqm-shim-qktr.sbatch
+#
+# with QFW_API_KEY exported. Pass options through the environment (sbatch
+# exports it by default) rather than --export=ALL,VAR=..., which makes slurmd
+# fetch the user's login environment with su; that needs a clone() this
+# container denies, and slurmd dies, taking the node down with it.
 
 set -euo pipefail
 
@@ -45,7 +50,7 @@ QFW_VENV="${QFW_VENV:-/opt/openqse/qfw-venv}"
 
 : "${QFW_API_KEY:?set QFW_API_KEY to your IQM Resonance API token}"
 
-echo "[$(date)] shim-test-qiskit-transpile on $(hostname)"
+echo "[$(date)] iqm-shim-qktr on $(hostname)"
 
 if [ ! -f "${QFW_PREFIX}/bin/qfw-activate" ]; then
     echo "No QFw install at ${QFW_PREFIX}. Run ./do_qfw_build.sh on the host first." >&2
@@ -55,6 +60,6 @@ source "${QFW_PREFIX}/bin/qfw-activate" --venv "${QFW_VENV}"
 
 # Unbuffered: stdout is fully buffered once redirected to a file, so without
 # this, prints never reach slurm-<jobid>.out until the process exits.
-python -u "${SCRIPT_DIR}/shim-test-qiskit-transpile.py"
+python -u "${SCRIPT_DIR}/iqm-shim-qktr.py"
 
-echo "[$(date)] shim-test-qiskit-transpile done on $(hostname)"
+echo "[$(date)] iqm-shim-qktr done on $(hostname)"

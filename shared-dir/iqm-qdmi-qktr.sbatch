@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=mqt-iqm
+#SBATCH --job-name=iqm-qdmi-qktr
 #SBATCH --time=00:30:00
 #SBATCH --partition=normal
 #SBATCH --nodes=1
@@ -12,7 +12,7 @@
 # run a GHZ circuit on it through IQM's Qiskit backend. As shipped it targets
 # the `garnet:mock` device on IQM Resonance (https://resonance.iqm.tech/), a
 # free mock backend that needs only a Resonance API token -- no QPU time.
-# The actual work is in mqt-iqm.py alongside this script.
+# The actual work is in iqm-qdmi-qktr.py alongside this script.
 #
 # This is the live-service counterpart to mqt-cc-smoke-test.sbatch: that one
 # targets MQT Core's bundled, offline `mqt.sc.iqm.garnet` snapshot and runs on
@@ -37,8 +37,8 @@ MQT_CC_VENV="${MQT_CC_VENV:-/opt/openqse/mqt-cc-venv}"
 
 : "${QFW_API_KEY:?set QFW_API_KEY to your IQM Resonance API token}"
 
-echo "[$(date)] mqt-iqm on $(hostname)"
+echo "[$(date)] iqm-qdmi-qktr on $(hostname)"
 
-"${MQT_CC_VENV}/bin/python" "${SCRIPT_DIR}/mqt-iqm.py"
+"${MQT_CC_VENV}/bin/python" "${SCRIPT_DIR}/iqm-qdmi-qktr.py"
 
-echo "[$(date)] mqt-iqm done on $(hostname)"
+echo "[$(date)] iqm-qdmi-qktr done on $(hostname)"
