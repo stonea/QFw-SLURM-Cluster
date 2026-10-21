@@ -191,8 +191,12 @@ if [ "${QFW_SKIP_VENV}" != "true" ]; then
     fi
     # QHW packages are copied into site-packages. QFw's requirements supply
     # their dependencies, including jsonschema.
+    override_args=()
+    if [ -f "${QFW_SRC}/setup/overrides.txt" ]; then
+        override_args=(--override "${QFW_SRC}/setup/overrides.txt")
+    fi
     uv pip install \
-        --override "${QFW_SRC}/setup/overrides.txt" \
+        "${override_args[@]}" \
         -r "${QFW_SRC}/setup/build-requirements.txt" \
         -r "${QFW_SRC}/setup/requirements.txt" \
         -r "${QFW_SRC}/setup/qdmi-requirements.txt" \
