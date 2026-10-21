@@ -7,6 +7,13 @@ qpus:
   fake-iqm-20q:
     provider: fake-iqm
     provider-device-id: fake-iqm-20q
+  iqm-garnet-mock:
+    provider: iqm
+    # IQM Resonance's noiseless mock simulator for the 20-qubit Garnet device.
+    # This is the alias IQM Resonance expects, not the QFw device id above it.
+    provider-device-id: "garnet:mock"
+    url: https://resonance.iqm.tech
+    credential-db: qpu-users.json
   ibm-156-nh:
     provider: ibm
     provider-device-id: ibm_156_nh

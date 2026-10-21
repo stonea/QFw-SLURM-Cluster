@@ -10,6 +10,10 @@
         "fake-iqm-20q": {
           "enabled": true
         },
+        "iqm-garnet-mock": {
+          "enabled": true,
+          "api_key": ""
+        },
         "ibm-156-nh": {
           "enabled": true,
           "api_key": "",
@@ -48,6 +52,10 @@
         "fake-iqm-20q": {
           "enabled": true
         },
+        "iqm-garnet-mock": {
+          "enabled": true,
+          "api_key": ""
+        },
         "ibm-156-nh": {
           "enabled": true,
           "api_key": "",
@@ -85,6 +93,10 @@
         },
         "fake-iqm-20q": {
           "enabled": true
+        },
+        "iqm-garnet-mock": {
+          "enabled": true,
+          "api_key": ""
         },
         "ibm-156-nh": {
           "enabled": true,
