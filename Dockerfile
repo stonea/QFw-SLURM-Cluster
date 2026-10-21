@@ -422,6 +422,7 @@ RUN set -ex \
     && uv pip install --python "${QFW_IMAGE_VENV}" --upgrade \
         pip setuptools wheel \
     && uv pip install --python "${QFW_IMAGE_VENV}" \
+        --override "${QFW_IMAGE_SOURCE}/setup/overrides.txt" \
         -r "${QFW_IMAGE_SOURCE}/setup/build-requirements.txt" \
         -r "${QFW_IMAGE_SOURCE}/setup/requirements.txt" \
         "qrmi==${QRMI_VERSION}" \

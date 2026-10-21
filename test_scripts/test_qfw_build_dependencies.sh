@@ -17,7 +17,8 @@ touch "${QFW_BASE}/QFw/CMakeLists.txt" "${QFW_BASE}/mqt-core/pyproject.toml" \
     "${QFW_BASE}/qfw-venv/bin/activate" "${MLIR_DIR}/MLIRConfig.cmake" \
     "${QFW_BASE}/QFw/setup/build-requirements.txt" \
     "${QFW_BASE}/QFw/setup/requirements.txt" \
-    "${QFW_BASE}/QFw/setup/qdmi-requirements.txt"
+    "${QFW_BASE}/QFw/setup/qdmi-requirements.txt" \
+    "${QFW_BASE}/QFw/setup/overrides.txt"
 sed -n '/^QFW_BASE=/,/^REMOTE$/p' "${repo_dir}/do_qfw_build.sh" |
     sed '$d' >"${temporary}/remote.sh"
 
@@ -38,7 +39,7 @@ for qrmi in pinned fallback unpinned; do
     fi
     : >"${UV_LOG}"
     bash -euo pipefail "${temporary}/remote.sh" >"${temporary}/output" 2>&1
-    expected="<pip><install><-r><${QFW_BASE}/QFw/setup/build-requirements.txt><-r><${QFW_BASE}/QFw/setup/requirements.txt><-r><${QFW_BASE}/QFw/setup/qdmi-requirements.txt><${requirement}>"
+    expected="<pip><install><--override><${QFW_BASE}/QFw/setup/overrides.txt><-r><${QFW_BASE}/QFw/setup/build-requirements.txt><-r><${QFW_BASE}/QFw/setup/requirements.txt><-r><${QFW_BASE}/QFw/setup/qdmi-requirements.txt><${requirement}>"
     if ! grep -Fxq "${expected}" "${UV_LOG}"; then
         echo "Dependencies were not resolved together (${qrmi} QRMI):" >&2
         cat "${UV_LOG}" >&2

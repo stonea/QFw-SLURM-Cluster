@@ -192,10 +192,21 @@ if [ "${QFW_SKIP_VENV}" != "true" ]; then
     # QHW packages are copied into site-packages. QFw's requirements supply
     # their dependencies, including jsonschema.
     uv pip install \
+        --override "${QFW_SRC}/setup/overrides.txt" \
         -r "${QFW_SRC}/setup/build-requirements.txt" \
         -r "${QFW_SRC}/setup/requirements.txt" \
         -r "${QFW_SRC}/setup/qdmi-requirements.txt" \
         "${qrmi_requirement}"
+
+    # QFw's requirements pin a released mqt-core. Replace it with a wheel built
+    # from the MQT Core checkout so QFw runs against the same sources as mqt-cc.
+    echo "== mqt-core wheel from ${MQT_CORE_SRC}"
+    MQT_WHEEL_DIR="$(mktemp -d)"
+    trap 'rm -rf "${MQT_WHEEL_DIR}"' EXIT
+    CMAKE_BUILD_PARALLEL_LEVEL="${jobs}" \
+        uv build --wheel --out-dir "${MQT_WHEEL_DIR}" "${MQT_CORE_SRC}"
+    MQT_WHEEL="$(ls "${MQT_WHEEL_DIR}"/mqt_core-*.whl)"
+    uv pip install --reinstall-package mqt-core "${MQT_WHEEL}[qiskit]"
 else
     # shellcheck disable=SC1091
     source "${QFW_VENV}/bin/activate"
@@ -222,13 +233,12 @@ if ! ldd "${QFW_PREFIX}/lib/libdefw.so" 2>/dev/null | grep -q libfabric; then
 fi
 
 if [ "${QFW_SKIP_VENV}" != "true" ]; then
-    # Build mqt-cc from the mounted checkout, apart from QFw's SDK dependencies.
+    # Install the checkout's mqt-cc, apart from QFw's SDK dependencies.
     mqt_cc_venv="${QFW_BASE}/mqt-cc-venv"
     [ -d "${mqt_cc_venv}" ] || uv venv --python python3 "${mqt_cc_venv}"
     uv pip install --python "${mqt_cc_venv}" --upgrade pip
-    CMAKE_BUILD_PARALLEL_LEVEL="${jobs}" \
-        uv pip install --python "${mqt_cc_venv}" \
-        "${MQT_CORE_SRC}" 'qiskit==2.5.2'
+    uv pip install --python "${mqt_cc_venv}" \
+        --reinstall-package mqt-core "${MQT_WHEEL}" 'qiskit==2.5.2'
 fi
 
 echo
